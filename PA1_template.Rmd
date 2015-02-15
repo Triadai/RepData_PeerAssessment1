@@ -54,18 +54,70 @@ df.stepsInterval <- ddply(df.raw, .(interval), summarize, average=mean(steps, na
 df.stepsInterval.max <- df.stepsInterval[df.stepsInterval$average == max(df.stepsInterval$average),]
 interval_max <- df.stepsInterval.max$interval
 steps_max <- df.stepsInterval.max$average
-meansteps <- mean(df.stepsInterval$average)
+meansteps.interval <- mean(df.stepsInterval$average)
 ```
 
-The interval with the most number of steps is Interval `r interval_max` with `r steps_max` steps (compared to `r meansteps` on average in the intervals).
+The interval with the most number of steps is Interval `r interval_max` with `r steps_max` steps (compared to `r meansteps.interval` on average in the intervals).
 
 ```{r}
 ggplot(df.stepsInterval)+geom_line(aes(x = interval, y = average))+
   geom_vline(data=df.stepsInterval.max, aes(xintercept=interval, color="Red"))+
   ylab("# of 5-minute interval")
 ```
+
 ## Imputing missing values
 
+We replace missing values with the mean value for that particular interval.
 
+```{r}
+missing_rows <- sum(is.na(df.raw$steps))
+# This approach comes from http://stackoverflow.com/questions/9322773/how-to-replace-na-with-mean-by-subset-in-r-impute-with-plyr
+
+impute.mean <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+df.imputed <- ddply(df.raw, ~ interval, transform, steps = impute.mean(steps))
+```
+
+`r missing_rows` have missing values.
+
+```{r}
+df.stepsPerDay.im <- ddply(df.imputed, .(date), summarize, total=sum(steps, na.rm = TRUE))
+meansteps.im <- mean(df.stepsPerDay.im$total)
+mediansteps.im <- median(df.stepsPerDay.im$total)
+
+v <- data.frame(values = rbind(meansteps.im, mediansteps.im))
+ggplot(df.stepsPerDay.im, aes(x=total)) + 
+    geom_histogram(      # Histogram with density instead of count on y-axis
+                   binwidth=1000,
+                   colour="black", fill="white") +
+  geom_vline(data=v, aes(xintercept = values, color = c("red","blue"), show_guide = TRUE)) + 
+  xlab("Total # of steps / day") + 
+ scale_colour_manual(values=c("red","blue"), labels = c('Mean', 'Median')) +
+  theme(legend.position = "top", legend.title=element_blank())
+```
+
+The median value now is `r mediansteps.im` and the mean value is `r meansteps.im` - they are equal!
+The mean has shifted upward. This was expected as we now have more steps in the dataset.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Wrangle the data first. We split by weekend/weekday and by interval and then calculate the mean number of steps. We use the imputed data.
+
+```{r}
+df.imputed$weekdays <- as.factor(weekdays(as.Date(df.imputed$date)))
+
+weekendfunction <- function(x){
+ if(x == 'Sonntag' | x == 'Samstag') return('weekend')
+ return('weekday')
+}
+weekendfunction <- Vectorize(weekendfunction)
+df.weekended <- ddply(df.imputed, ~ weekdays, transform, weekendflag = weekendfunction(weekdays))
+
+df.meansteps.weekended <- ddply(df.weekended, c("interval", "weekendflag"), summarise, meansteps = mean(steps))
+```
+
+And plot
+
+```{r}
+library(lattice)
+xyplot(df.meansteps.weekended$meansteps~df.meansteps.weekended$interval|df.meansteps.weekended$weekendflag, type=c("p", "l"), layout=c(1,2), xlab="Interval", ylab="Mean number of steps")
+```
